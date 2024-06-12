@@ -1,88 +1,68 @@
-use actix_web::{
-    dev::ServiceRequest,
-    error::Error,
-    web::{self, Data},
-    App, HttpMessage, HttpServer,
-};
+mod config;
+mod handler;
+mod jwt_auth;
+mod model;
+mod response;
+
+use actix_cors::Cors;
+use actix_web::middleware::Logger;
+use actix_web::{http::header, web, App, HttpServer};
+use config::Config;
 use dotenv::dotenv;
-use sqlx::{mysql::MySqlPoolOptions, Pool, MySql};
-
-use actix_web_httpauth::{
-    extractors::{
-        bearer::{self, BearerAuth},
-        AuthenticationError,
-    },
-    middleware::HttpAuthentication,
-};
-use hmac::{Hmac, Mac};
-use jwt::VerifyWithKey;
-use serde::{Deserialize, Serialize};
-use sha2::Sha256;
-
-mod services;
-use services::{basic_auth, create_article, create_user};
+use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 
 pub struct AppState {
-    db: Pool<MySql>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct TokenClaims {
-    id: i32,
-}
-
-async fn validator(
-    req: ServiceRequest,
-    credentials: BearerAuth,
-) -> Result<ServiceRequest, (Error, ServiceRequest)> {
-    let jwt_secret: String = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set!");
-    let key: Hmac<Sha256> = Hmac::new_from_slice(jwt_secret.as_bytes()).unwrap();
-    let token_string = credentials.token();
-
-    let claims: Result<TokenClaims, &str> = token_string
-        .verify_with_key(&key)
-        .map_err(|_| "Invalid token");
-
-    match claims {
-        Ok(value) => {
-            req.extensions_mut().insert(value);
-            Ok(req)
-        }
-        Err(_) => {
-            let config = req
-                .app_data::<bearer::Config>()
-                .cloned()
-                .unwrap_or_default()
-                .scope("");
-
-            Err((AuthenticationError::from(config).into(), req))
-        }
-    }
+    db: Pool<Postgres>,
+    env: Config,
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    if std::env::var_os("RUST_LOG").is_none() {
+        std::env::set_var("RUST_LOG", "actix_web=info");
+    }
     dotenv().ok();
-    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let pool = MySqlPoolOptions::new()
-        .max_connections(5)
-        .connect(&database_url)
+    env_logger::init();
+
+    let config = Config::init();
+
+    let pool = match PgPoolOptions::new()
+        .max_connections(10)
+        .connect(&config.database_url)
         .await
-        .expect("Error building a connection pool");
+    {
+        Ok(pool) => {
+            println!("✅Connection to the database is successful!");
+            pool
+        }
+        Err(err) => {
+            println!("🔥 Failed to connect to the database: {:?}", err);
+            std::process::exit(1);
+        }
+    };
+
+    println!("🚀 Server started successfully");
 
     HttpServer::new(move || {
-        let bearer_middleware = HttpAuthentication::bearer(validator);
+        let cors = Cors::default()
+            .allowed_origin("http://localhost:3000")
+            .allowed_methods(vec!["GET", "POST"])
+            .allowed_headers(vec![
+                header::CONTENT_TYPE,
+                header::AUTHORIZATION,
+                header::ACCEPT,
+            ])
+            .supports_credentials();
         App::new()
-            .app_data(Data::new(AppState { db: pool.clone() }))
-            .service(basic_auth)
-            .service(create_user)
-            .service(
-                web::scope("")
-                    .wrap(bearer_middleware)
-                    .service(create_article),
-            )
+            .app_data(web::Data::new(AppState {
+                db: pool.clone(),
+                env: config.clone(),
+            }))
+            .configure(handler::config)
+            .wrap(cors)
+            .wrap(Logger::default())
     })
-    .bind(("127.0.0.1", 8080))?
+    .bind(("127.0.0.1", 8000))?
     .run()
     .await
 }

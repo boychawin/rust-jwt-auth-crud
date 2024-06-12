@@ -4,17 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-actix = "0.13.0"
-actix-web = "4.2.1"
-chrono = { version = "0.4.22", features = ["serde"] }
+actix-cors = "0.7.0"
+actix-web = "4.7.0"
+argon2 = "0.5.3"
+chrono = { version = "0.4.38", features = ["serde"] }
 dotenv = "0.15.0"
-serde = { version = "1.0.145", features = ["derive"] }
-serde_json = "1.0.86"
-sqlx = { version = "0.7.4", features = ["runtime-async-std-native-tls", "mysql", "chrono"] }
-
-# DEPENDENCIES SPECIFIC TO AUTH
-actix-web-httpauth = "0.8.0"
-argonautica = "0.2.0"
-hmac = "0.12.1"
-jwt = "0.16.0"
-sha2 = "0.10.6"
+env_logger = "0.11.3"
+jsonwebtoken = "9.3.0"
+rand_core = { version = "0.6.4", features = ["std"] }
+serde = { version = "1.0.203", features = ["derive"] }
+serde_json = "1.0.117"
+sqlx = { version = "0.7.4", features = ["runtime-async-std-native-tls", "postgres", "chrono", "uuid"] }
+uuid = { version = "1.7.0", features = ["serde", "v4"] }
